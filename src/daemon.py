@@ -6,6 +6,10 @@ from datetime import datetime
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 from api_client import OddsAPIClient
 from ev_scanner import EVScanner
@@ -58,7 +62,7 @@ class Daemon:
 
     def _broadcast(self, path: str, payload):
         try:
-            requests.post(f"{self.api_base_url}{path}", json=payload, timeout=10)
+            requests.post(f"{self.api_base_url}{path}", json=payload, timeout=15)
         except Exception as e:
             print(f"     [WEBSOCKET ERROR] Failed to broadcast {path}: {e}")
 

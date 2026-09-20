@@ -59,12 +59,13 @@ class OddsAPIClient:
         for key in sports:
             url = f"{self.BASE_URL}/{key}/odds/"
             params = {
+                "apiKey": self.api_key,
                 "api_key": self.api_key,
                 "regions": regions,
                 "markets": markets,
                 "oddsFormat": "decimal",
             }
-            response = requests.get(url, params=params)
+            response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
             events.extend(self._parse_events(response.json()))
         return events
@@ -88,13 +89,14 @@ class OddsAPIClient:
 
         url = f"{self.BASE_URL}/{sport}/scores/"
         params = {
+            "apiKey": self.api_key,
             "api_key": self.api_key,
             "daysFrom": daysFrom,
         }
         if event_ids:
             params["eventIds"] = ",".join(event_ids)
 
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=30)
         response.raise_for_status()
 
         results = {}
