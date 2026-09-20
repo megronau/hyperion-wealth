@@ -1,3 +1,5 @@
+# Production: live_paper on Starter web + Starter worker + Basic Postgres.
+# Set ODDS_API_KEY on both services in the dashboard (sync: false).
 services:
   - type: web
     name: hyperion-web
@@ -28,6 +30,12 @@ services:
         value: "900"
       - key: API_URL
         value: "https://hyperion-web-dbbz.onrender.com"
+      - key: LIVE_SPORTS
+        value: upcoming
+      - key: MAX_BETS_PER_CYCLE
+        value: "10"
+      - key: ODDS_API_KEY
+        sync: false
 
   - type: worker
     name: hyperion-daemon
@@ -48,8 +56,10 @@ services:
           property: hostport
       - key: TRADING_MODE
         value: live_paper
-      - key: PAPER_GAMES_PER_CYCLE
-        value: "120"
+      - key: MAX_BETS_PER_CYCLE
+        value: "10"
+      - key: LIVE_SPORTS
+        value: upcoming
       - key: SCAN_INTERVAL_SECONDS
         value: "900"
       - key: PYTHON_VERSION

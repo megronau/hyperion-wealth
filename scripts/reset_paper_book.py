@@ -1,6 +1,9 @@
-"""Wipe trades and reset bankroll, then run a paper walk-forward.
+"""Local SIMULATOR helper: wipe SQLite trades, set bankroll, run invented games.
 
-Usage (PowerShell):
+Do not point this at production Postgres. live_paper production must not
+use invented fills. For a cloud $100 reset, DELETE FROM trades in SQL instead.
+
+Usage (PowerShell, local sim only):
   $env:STARTING_BANKROLL = "100"
   $env:PAPER_GAMES_PER_CYCLE = "20"
   py -3 scripts/reset_paper_book.py

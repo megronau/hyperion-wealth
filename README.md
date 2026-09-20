@@ -1,8 +1,10 @@
 # Hyperion Wealth System
 
-Paper-trading engine that scans for +EV, arbitrage, and free-bet conversions, sizes bets with fractional Kelly, and records P&L after a **2% fee on winning profit**.
+Scans US sports moneylines for +EV, arbitrage, and free-bet conversions. Sizes bets with fractional Kelly. Records P&L after a **2% fee on winning profit**.
 
-It does **not** send real money to sportsbooks. Paper mode simulates unique games. Live mode can read real odds if `ODDS_API_KEY` is set, but Kalshi execution is still simulated.
+**Production default is `live_paper`:** real odds from [The Odds API](https://the-odds-api.com), **paper fills** (no cash sent to a book), settlement from **real scores**.
+
+It does **not** place sportsbook or Kalshi orders. The invented-game simulator (`TRADING_MODE=sim`) is opt-in only and is **off** in production.
 
 ## Live URLs
 
@@ -13,19 +15,32 @@ It does **not** send real money to sportsbooks. Paper mode simulates unique game
 | Health | https://hyperion-web-dbbz.onrender.com/api/health |
 | GitHub | https://github.com/megronau/hyperion-wealth |
 
+## How a live-paper cycle works
+
+Every **15 minutes** the Render worker:
+
+1. Settles any open **live_paper** tickets whose games have real scores (win profit × 0.98).
+2. Pulls **upcoming** US h2h odds (DraftKings/Pinnacle as sharp, FanDuel and others as soft).
+3. Logs at most **10** unique +EV paper bets that pass the min-edge filter (default 2% after fee). Same event/side is not bet twice.
+4. Broadcasts EV / arb / matched-betting lists to the dashboard.
+5. Adjusts Kelly only from **realized** ROI, not from fake closing lines.
+
+Expect a handful of paper tickets per day on a real slate, not hundreds. Hundreds of fills meant the old simulator.
+
 ## How to run locally
 
-Use three terminals from the repo root. Python 3.11+ and Node.js 20+ are required.
+Python 3.11+ and Node.js 20+. Three terminals from the repo root.
 
 **1. API**
 
 ```powershell
 py -3 -m pip install -r requirements.txt
+copy .env.example .env   # then set ODDS_API_KEY
 py -3 src/api.py
 ```
 
-API: http://127.0.0.1:5000  
-Health: http://127.0.0.1:5000/api/health
+- API: http://127.0.0.1:5000
+- Health: http://127.0.0.1:5000/api/health
 
 **2. Dashboard**
 
@@ -35,25 +50,32 @@ npm install
 npm run dev
 ```
 
-UI: http://localhost:5173/
+UI: http://localhost:5173/  
+Vite proxies `/api` and `/socket.io` to port 5000. If the page is blank, hard-refresh (Ctrl+Shift+R). Do not use port 5000 as the UI.
 
-**3. Daemon (paper loop)**
+**3. Daemon**
 
 ```powershell
+$env:ODDS_API_KEY = "your-odds-api-key"
+$env:TRADING_MODE = "live_paper"
 py -3 src/daemon.py
 ```
 
-Without `ODDS_API_KEY` this stays in **paper** mode: unique +EV games, 2% win fee, bankroll in `trading_brain.db`.
+Without `ODDS_API_KEY`, live_paper **skips** the cycle. It will not invent games.
 
-**Reset the local book to $100**
+**Simulator only (math test, not production)**
+
+```powershell
+$env:TRADING_MODE = "sim"
+py -3 src/daemon.py
+```
+
+**Reset local SQLite bankroll** (does **not** invent games by itself; `reset_paper_book.py` then runs a sim batch — use only for simulator tests):
 
 ```powershell
 $env:STARTING_BANKROLL = "100"
-$env:PAPER_GAMES_PER_CYCLE = "20"
 py -3 scripts/reset_paper_book.py
 ```
-
-That wipes trades, sets bankroll to $100, then runs a seed walk-forward.
 
 **Tests**
 
@@ -63,73 +85,79 @@ py -3 -m unittest discover -s src -v
 
 ## Modes
 
-| `TRADING_MODE` | What it does |
-|----------------|----------------|
-| `live_paper` (default) | Real upcoming odds, paper fills, settle from real scores. **Requires `ODDS_API_KEY`.** Will not invent games if the key is missing. |
-| `live` | Same as live_paper until Kalshi signing is real. Still no sportsbook cash. |
-| `sim` (or `paper`) | Invented +EV games. Use only to test the math. |
+| `TRADING_MODE` | Odds | Fills | Settlement |
+|----------------|------|-------|------------|
+| `live_paper` (production) | The Odds API | Paper log only | Real scores |
+| `live` | Same as live_paper until Kalshi signing exists | Still no cash | Real scores |
+| `sim` or `paper` | Invented markets | Simulated | Bernoulli at modeled p |
 
-`TRADING_MODE=live_paper` without `ODDS_API_KEY` **skips the cycle** instead of falling back to the simulator.
+Missing `ODDS_API_KEY` + `live_paper` = **no trades**, not a silent fallback to `sim`.
 
 ## Fees
 
-`FEE_PERCENTAGE` defaults to **0.02**.
+`FEE_PERCENTAGE` = **0.02**
 
-- Wins: 2% of **profit** (not of stake)
-- Losses: no fee
-- Kelly and the +EV filter use after-fee odds so the model does not pretend the gross price is keepable
+- Win: `(odds − 1) × stake × 0.98`
+- Loss: `−stake`
+- Kelly and the +EV filter use after-fee odds
 
-Not in P&L: Odds API subscription, Render/Vercel hosting, deposits, withdrawals.
+Not in P&L: Odds API bill, Render, Vercel, deposits, withdrawals.
 
 ## Environment variables
 
-Copy [`.env.example`](.env.example). Important keys:
+See [`.env.example`](.env.example). Do not commit secrets.
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `TRADING_MODE` | `paper` | `paper` or `live` |
+| Variable | Production | Purpose |
+|----------|------------|---------|
+| `TRADING_MODE` | `live_paper` | See modes above |
+| `ODDS_API_KEY` | set on Render | Required for live_paper |
 | `FEE_PERCENTAGE` | `0.02` | Win commission |
-| `DATABASE_URL` | unset (SQLite `trading_brain.db`) | Postgres on Render |
-| `ODDS_API_KEY` | unset (mock odds) | Real odds |
-| `API_URL` | `http://127.0.0.1:5000` | Daemon → API broadcasts |
-| `PAPER_GAMES_PER_CYCLE` | `120` locally / `20` on the $100 cloud trial | Paper batch size |
-| `SCAN_INTERVAL_SECONDS` | `300` | Seconds between cycles |
-| `EMBED_DAEMON` | `false` locally / `true` on Render web | Run daemon inside the API process |
-| `STARTING_BANKROLL` | `1000` | Used by `scripts/reset_paper_book.py` |
-| `VITE_BACKEND_URL` | (dashboard) | Public API URL for Vercel builds |
+| `DATABASE_URL` | Render Postgres | Unset locally → `trading_brain.db` |
+| `API_URL` | `https://hyperion-web-dbbz.onrender.com` | Worker → API broadcasts |
+| `SCAN_INTERVAL_SECONDS` | `900` | 15 minutes between live-paper cycles |
+| `MAX_BETS_PER_CYCLE` | `10` | Cap on new live-paper tickets per scan |
+| `LIVE_SPORTS` | `upcoming` | Odds API sport key(s), comma-separated |
+| `EMBED_DAEMON` | `false` | Do not run the loop inside the web service |
+| `PAPER_GAMES_PER_CYCLE` | unused in live_paper | Sim batch size only |
+| `STARTING_BANKROLL` | `100` | `scripts/reset_paper_book.py` only |
+| `VITE_BACKEND_URL` | Render API URL | Vercel production build |
+| `DISCORD_WEBHOOK_URL` | optional | Alerts |
+
+Odds API quota: `upcoming` every 15 minutes is ~96 odds calls/day plus score fetches. Free 500/month is not enough; use a paid Odds API plan.
 
 ## Project layout
 
 ```
-src/api.py            Flask API + optional embedded daemon
-src/daemon.py         Scan / paper walk-forward / settle / learn
-src/paper_engine.py   Unique +EV paper games
-src/fees.py           2% win fee
-src/ev_scanner.py     +EV vs sharp books
-src/scanner.py        Arbitrage
-src/matched_betting.py
-src/settlement.py     Paper Bernoulli + live scores
-src/database.py       SQLite or Postgres
-dashboard/            React UI
-render.yaml           Render API + optional worker + Postgres
-scripts/reset_paper_book.py
+src/api.py              Flask API (status, history, scanners, sockets)
+src/daemon.py           Worker: settle → scan → paper-log +EV
+src/trading_mode.py     live_paper / live / sim
+src/ev_scanner.py       +EV vs sharp books
+src/scanner.py          Arbitrage
+src/matched_betting.py  Free-bet conversion
+src/settlement.py       Real scores (live_paper) or Bernoulli (sim)
+src/fees.py             2% win fee + Kelly net odds
+src/paper_engine.py     Invented games (sim only)
+src/database.py         SQLite or Postgres
+src/kalshi_client.py    Paper fills only
+dashboard/              React UI (Vercel)
+render.yaml             Starter web + Starter worker + Basic Postgres
+scripts/reset_paper_book.py   Local sim reset (not for production)
 ```
 
-## Cloud
+## Cloud (~$20/month on Render)
 
-**Dashboard** is on Vercel (`dashboard/`). **API + paper loop** are on Render (`render.yaml`). Vercel cannot run the Python daemon.
+| Service | Plan | Role |
+|---------|------|------|
+| `hyperion-web` | Starter (~$7) | Always-on API |
+| `hyperion-daemon` | Starter (~$7) | live_paper loop |
+| `hyperion-db` | Basic 256 MB (~$6) | Postgres |
+| Vercel `hyperion-wealth` | Hobby | Dashboard |
 
-### Render (~$20/month, already created)
+The old free web service `hyperion-api` is **suspended**. `EMBED_DAEMON` is **false** so the worker owns the loop.
 
-| Service | Plan | ~Cost |
-|---------|------|--------|
-| `hyperion-web` | Starter web API | $7 |
-| `hyperion-daemon` | Starter worker | $7 |
-| `hyperion-db` | Basic 256 MB Postgres | $6 |
+**Odds API key** must be set on **both** `hyperion-web` and `hyperion-daemon` (Render Dashboard → Environment). Never commit it.
 
-The worker runs the paper loop. The web service only serves the API (no sleep, `EMBED_DAEMON=false`). Postgres no longer expires after 30 days.
-
-### Point Vercel at the API
+**Point Vercel at the API** (already done for production):
 
 ```powershell
 cd dashboard
@@ -137,16 +165,7 @@ echo "https://hyperion-web-dbbz.onrender.com" | vercel env add VITE_BACKEND_URL 
 vercel deploy --prod
 ```
 
-### New Render deploy from this repo
-
-1. Connect GitHub repo `megronau/hyperion-wealth` to Render.
-2. Apply `render.yaml` (or recreate web + Postgres).
-3. Set `DATABASE_URL` from the database, `TRADING_MODE=paper`, `FEE_PERCENTAGE=0.02`, `EMBED_DAEMON=true`.
-4. After the API URL exists, set `VITE_BACKEND_URL` on Vercel and redeploy.
-
-### Reset the cloud $100 paper trial
-
-The live trial was reset to **$100** bankroll, paper mode, 20 games per cycle. To reset again, run `scripts/reset_cloud_book.py` with `RENDER_API_KEY` (do not commit that key), or SQL against Postgres:
+**Reset the cloud $100 live-paper book** (SQL on Postgres). This does not start the simulator:
 
 ```sql
 DELETE FROM trades;
@@ -155,20 +174,22 @@ SET bankroll = 100, kelly_fraction = 0.25, min_ev_threshold = 0.02
 WHERE id = 1;
 ```
 
+Do **not** run `scripts/reset_paper_book.py` against production; that seeds invented sim trades.
+
 ## What is not finished
 
-- Kalshi live orders (paper fills, mock signatures, fake tickers)
-- Direct FanDuel / DraftKings betting
+- Real Kalshi or sportsbook order routing
+- Spreads/totals (moneyline h2h only)
 - Odds API, hosting, and cash-out fees in P&L
-- Always-on worker without Render billing
+- Auto-rotating secrets that were pasted in chat
 
 ## API cheatsheet
 
 | Method | Path | Use |
 |--------|------|-----|
 | GET | `/api/health` | Liveness |
-| GET | `/api/system_status` | Mode, bankroll, P&L, fee, Kelly |
+| GET | `/api/system_status` | Mode, `odds_live`, bankroll, P&L, fee |
 | GET | `/api/history` | Closed trades |
-| GET | `/api/opportunities/ev` | +EV list (`?refresh=1` to rescan) |
-| GET | `/api/opportunities/arbitrage` | Arb list |
+| GET | `/api/opportunities/ev?refresh=1` | Rescan +EV |
+| GET | `/api/opportunities/arbitrage` | Arb |
 | GET | `/api/opportunities/matched_betting` | Free-bet conversions |
