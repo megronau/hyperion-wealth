@@ -49,11 +49,16 @@ def create_app(db=None, odds_client=None):
         clv_values = [(t.get("clv_percentage") or 0) for t in closed_trades]
         avg_clv = (sum(clv_values) / len(clv_values)) if clv_values else 0
         perf = get_db().get_performance()
+        pending = [
+            t for t in get_db().get_all_closed_trades()
+            if (t.get("outcome") or "PENDING") == "PENDING"
+        ]
         return jsonify({
             "status": "ONLINE",
             "kelly_fraction": params["kelly_fraction"],
             "min_ev_threshold": params["min_ev_threshold"],
             "total_trades": perf["settled_trades"],
+            "pending_trades": len(pending),
             "average_clv": avg_clv,
             "realized_pnl": perf["realized_pnl"],
             "bankroll": params.get("bankroll", 1000.0),

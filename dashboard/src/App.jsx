@@ -175,8 +175,13 @@ function App() {
             <span className="stat-value">{(status.min_ev_threshold * 100).toFixed(2)}%</span>
           </div>
           <div className="glass-panel stat-card">
-            <span className="stat-label">Settled Trades</span>
-            <span className="stat-value">{status.total_trades}</span>
+            <span className="stat-label">Settled / Pending</span>
+            <span className="stat-value">
+              {status.total_trades}
+              <span style={{fontSize: '1rem', marginLeft: '8px', color: '#8b8b9e'}}>
+                {status.pending_trades || 0} open
+              </span>
+            </span>
           </div>
         </div>
       )}

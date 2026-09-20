@@ -164,7 +164,7 @@ class Daemon:
                     )
                     order_id = order.get("order_id")
 
-                self.db.log_trade(
+                trade_id = self.db.log_trade(
                     event_id=event_id,
                     match_name=opp["event"],
                     bet_on=opp["bet_on"],
@@ -175,6 +175,11 @@ class Daemon:
                     exchange_order_id=order_id,
                     sport_key=opp.get("sport_key"),
                     mode="live_paper",
+                )
+                self.db.update_closing_line(
+                    trade_id,
+                    opp["soft_odds"],
+                    opp["true_probability"] / 100.0,
                 )
                 placed += 1
                 print(f"     [LIVE PAPER] {opp['bet_on']} ${final_stake} — waiting for real scores")
