@@ -353,6 +353,9 @@ class TestAPI(unittest.TestCase):
         self.assertIn("bankroll", body)
         self.assertIn("trading_mode", body)
         self.assertAlmostEqual(body["win_fee_percentage"], 0.02)
+        open_bets = self.client.get("/api/open_bets")
+        self.assertEqual(open_bets.status_code, 200)
+        self.assertIsInstance(open_bets.get_json(), list)
 
     def test_opportunity_endpoints_return_lists(self):
         for path in (

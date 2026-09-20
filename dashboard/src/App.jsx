@@ -7,14 +7,23 @@ const socket = BACKEND_URL ? io(BACKEND_URL) : io()
 
 async function fetchJson(path) {
   const res = await fetch(`${BACKEND_URL}${path}`)
-  if (!res.ok) {
-    throw new Error(`${path} failed (${res.status})`)
-  }
+  if (!res.ok) throw new Error(`${path} failed (${res.status})`)
   return res.json()
+}
+
+function money(n) {
+  const v = Number(n || 0)
+  return `${v < 0 ? '-' : ''}$${Math.abs(v).toFixed(2)}`
+}
+
+function outcomeLabel(trade) {
+  if (trade.status === 'OPEN' || trade.outcome === 'PENDING') return 'Waiting on score'
+  return trade.outcome
 }
 
 function App() {
   const [status, setStatus] = useState(null)
+  const [openBets, setOpenBets] = useState([])
   const [opportunities, setOpportunities] = useState([])
   const [arbitrageOpps, setArbitrageOpps] = useState([])
   const [matchedBets, setMatchedBets] = useState([])
@@ -29,9 +38,10 @@ function App() {
     const q = refresh ? '?refresh=1' : ''
 
     try {
-      const [statusRes, historyRes, evRes, arbRes, mbRes] = await Promise.allSettled([
+      const [statusRes, historyRes, openRes, evRes, arbRes, mbRes] = await Promise.allSettled([
         fetchJson('/api/system_status'),
         fetchJson('/api/history'),
+        fetchJson('/api/open_bets'),
         fetchJson(`/api/opportunities/ev${q}`),
         fetchJson(`/api/opportunities/arbitrage${q}`),
         fetchJson(`/api/opportunities/matched_betting${q}`),
@@ -44,51 +54,40 @@ function App() {
         }
       }
 
+      if (openRes.status === 'fulfilled' && Array.isArray(openRes.value)) {
+        setOpenBets(openRes.value)
+      }
+
       if (historyRes.status === 'fulfilled' && Array.isArray(historyRes.value)) {
-        const chronological = [...historyRes.value].sort((a, b) =>
+        const pending = historyRes.value.filter((t) => (t.outcome || 'PENDING') === 'PENDING')
+        if (openRes.status !== 'fulfilled') setOpenBets(pending)
+
+        const settled = historyRes.value.filter((t) =>
+          ['WON', 'LOST', 'PUSH'].includes(t.outcome)
+        )
+        const chronological = [...settled].sort((a, b) =>
           String(a.timestamp || '').localeCompare(String(b.timestamp || ''))
         )
-        let cumulativeClv = 0
         let cumulativePnl = 0
         const chartData = chronological.map((trade, idx) => {
-          cumulativeClv += (trade.clv_percentage || 0) * 100
-          if (trade.outcome === 'WON' || trade.outcome === 'LOST' || trade.outcome === 'PUSH') {
-            cumulativePnl += trade.profit_loss || 0
-          }
-          return {
-            name: `Trade ${idx + 1}`,
-            clv: Number(cumulativeClv.toFixed(2)),
-            pnl: Number(cumulativePnl.toFixed(2)),
-            edge: Number(((trade.clv_percentage || 0) * 100).toFixed(2)),
-          }
+          cumulativePnl += trade.profit_loss || 0
+          return { name: `${idx + 1}`, pnl: Number(cumulativePnl.toFixed(2)) }
         })
         setHistory(chartData)
-        setRealizedPnl(
-          typeof statusRes.value?.realized_pnl === 'number'
-            ? statusRes.value.realized_pnl
-            : cumulativePnl
-        )
+        if (typeof statusRes.value?.realized_pnl !== 'number') {
+          setRealizedPnl(cumulativePnl)
+        }
       }
 
-      if (evRes.status === 'fulfilled' && Array.isArray(evRes.value)) {
-        setOpportunities(evRes.value)
-      }
-      if (arbRes.status === 'fulfilled' && Array.isArray(arbRes.value)) {
-        setArbitrageOpps(arbRes.value)
-      }
-      if (mbRes.status === 'fulfilled' && Array.isArray(mbRes.value)) {
-        setMatchedBets(mbRes.value)
-      }
+      if (evRes.status === 'fulfilled' && Array.isArray(evRes.value)) setOpportunities(evRes.value)
+      if (arbRes.status === 'fulfilled' && Array.isArray(arbRes.value)) setArbitrageOpps(arbRes.value)
+      if (mbRes.status === 'fulfilled' && Array.isArray(mbRes.value)) setMatchedBets(mbRes.value)
 
-      const failed = [statusRes, historyRes, evRes, arbRes, mbRes].filter((r) => r.status === 'rejected')
-      if (failed.length === 5) {
-        setError('Cannot reach the wealth backend. Start the API on port 5000.')
-      } else if (failed.length > 0) {
-        setError('Some scanners failed. Showing whatever data loaded.')
-      }
+      const failed = [statusRes, historyRes, openRes].filter((r) => r.status === 'rejected')
+      if (failed.length === 3) setError('Cannot reach the Hyperion API.')
     } catch (err) {
-      console.error('Failed to fetch data', err)
-      setError('Cannot reach the wealth backend. Start the API on port 5000.')
+      console.error(err)
+      setError('Cannot reach the Hyperion API.')
     } finally {
       setLoading(false)
     }
@@ -96,26 +95,12 @@ function App() {
 
   useEffect(() => {
     fetchData(false)
-
-    socket.on('new_opportunities', (newOpps) => {
-      if (Array.isArray(newOpps)) {
-        setOpportunities(newOpps)
-      }
-    })
-
-    socket.on('new_arbitrage', (newArbs) => {
-      if (Array.isArray(newArbs)) {
-        setArbitrageOpps(newArbs)
-      }
-    })
-
-    socket.on('new_matched_bet', (newMb) => {
-      if (Array.isArray(newMb)) {
-        setMatchedBets(newMb)
-      }
-    })
-
+    const tick = setInterval(() => fetchData(false), 30000)
+    socket.on('new_opportunities', (rows) => Array.isArray(rows) && setOpportunities(rows))
+    socket.on('new_arbitrage', (rows) => Array.isArray(rows) && setArbitrageOpps(rows))
+    socket.on('new_matched_bet', (rows) => Array.isArray(rows) && setMatchedBets(rows))
     return () => {
+      clearInterval(tick)
       socket.off('new_opportunities')
       socket.off('new_arbitrage')
       socket.off('new_matched_bet')
@@ -123,200 +108,209 @@ function App() {
   }, [])
 
   const online = Boolean(status)
+  const pnl = Number(status?.realized_pnl ?? realizedPnl)
+  const mode = (status?.trading_mode || 'live_paper').replace('_', ' ')
 
   return (
     <div className="app-container">
       <header className="header">
-        <h1 className="header-title text-gradient-green">HYPERION Wealth System</h1>
-        <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
-          {status && (
-            <div className={`status-badge ${status.trading_mode === 'sim' ? 'paper' : ''}`}>
-              {(status.trading_mode || 'live_paper').replace('_', ' ').toUpperCase()} MODE
-            </div>
-          )}
+        <div>
+          <div className="kicker">Paper desk · real markets</div>
+          <h1 className="header-title">Hyperion</h1>
+        </div>
+        <div className="header-actions">
+          {status && <div className="status-badge">{mode}</div>}
           <div className={`status-badge ${online ? '' : 'offline'}`}>
             <div className="status-dot"></div>
-            {error && !status ? 'OFFLINE' : (status ? status.status : 'CONNECTING...')}
+            {error && !status ? 'Offline' : (status ? 'Online' : 'Connecting')}
           </div>
+          <button className="refresh-btn" onClick={() => fetchData(true)} disabled={loading}>
+            {loading ? 'Scanning' : 'Refresh'}
+          </button>
         </div>
       </header>
 
-      {error && (
-        <div className="error-banner">{error}</div>
-      )}
+      <p className="lede">
+        {status?.trading_mode === 'sim'
+          ? 'Simulator is inventing games. This is not a real slate.'
+          : 'Live paper trading: real upcoming odds, paper fills, settlement from real scores. A 2% fee comes off winning profit. No sportsbook cash is sent.'}
+        {status && !status.odds_live ? ' Odds API key is missing, so scans are blocked.' : ''}
+      </p>
+
+      {error && <div className="error-banner">{error}</div>}
 
       {status && (
         <div className="stats-grid">
-          <div className="glass-panel stat-card">
+          <div className="stat-card">
             <span className="stat-label">Bankroll</span>
-            <span className="stat-value">${Number(status.bankroll || 0).toFixed(2)}</span>
+            <span className="stat-value">{money(status.bankroll)}</span>
           </div>
-          <div className="glass-panel stat-card">
-            <span className="stat-label">{status.trading_mode === 'live' ? 'Realized P&L' : 'Paper P&L'}</span>
-            <span className="stat-value" style={{color: realizedPnl >= 0 ? '#00ffcc' : '#ff4d4d'}}>
-              {realizedPnl >= 0 ? '+' : ''}${Number(status.realized_pnl ?? realizedPnl).toFixed(2)}
+          <div className="stat-card">
+            <span className="stat-label">Paper P&L</span>
+            <span className={`stat-value ${pnl >= 0 ? 'up' : 'down'}`}>
+              {pnl >= 0 ? '+' : ''}{money(pnl)}
             </span>
           </div>
-          <div className="glass-panel stat-card">
-            <span className="stat-label">Win Rate / ROI</span>
-            <span className="stat-value">
-              {((status.win_rate || 0) * 100).toFixed(1)}%
-              <span style={{fontSize: '1rem', marginLeft: '8px', color: '#8b8b9e'}}>
-                {((status.roi || 0) * 100).toFixed(2)}% ROI
-              </span>
-            </span>
+          <div className="stat-card">
+            <span className="stat-label">Working now</span>
+            <span className="stat-value">{openBets.length}</span>
           </div>
-          <div className="glass-panel stat-card">
-            <span className="stat-label">System Kelly Fraction</span>
-            <span className="stat-value">{status.kelly_fraction}x</span>
-          </div>
-          <div className="glass-panel stat-card">
-            <span className="stat-label">Min EV Threshold</span>
-            <span className="stat-value">{(status.min_ev_threshold * 100).toFixed(2)}%</span>
-          </div>
-          <div className="glass-panel stat-card">
-            <span className="stat-label">Settled / Pending</span>
+          <div className="stat-card">
+            <span className="stat-label">Settled</span>
             <span className="stat-value">
               {status.total_trades}
-              <span style={{fontSize: '1rem', marginLeft: '8px', color: '#8b8b9e'}}>
-                {status.pending_trades || 0} open
-              </span>
+              <span className="stat-sub">{((status.win_rate || 0) * 100).toFixed(0)}% wins</span>
             </span>
           </div>
         </div>
       )}
-      {status && status.trading_mode === 'sim' && (
-        <p className="mode-note">
-          Simulator mode invents unique +EV games. This is not real-market paper trading.
-        </p>
-      )}
-      {status && (status.trading_mode === 'live_paper' || status.trading_mode === 'live') && (
-        <p className="mode-note">
-          Real-market paper trading: live odds, paper fills, settlement from real scores.
-          Winning profit is reduced by a {(Number(status.win_fee_percentage ?? 0.02) * 100).toFixed(0)}% exchange fee.
-          No sportsbook cash is sent. {!status.odds_live ? 'ODDS_API_KEY is missing — scans are blocked.' : ''}
-        </p>
-      )}
 
-      {history.length > 0 && (
-          <div className="glass-panel chart-container" style={{marginTop: '20px', padding: '20px', borderRadius: '16px'}}>
-              <h2 style={{marginTop: 0, color: '#fff', fontSize: '1.2rem'}}>Cumulative System Edge (CLV)</h2>
-              <div style={{width: '100%', height: '300px', marginTop: '20px'}}>
-                  <ResponsiveContainer>
-                      <LineChart data={history}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                          <XAxis dataKey="name" stroke="#888" tick={{fill: '#888'}} />
-                          <YAxis yAxisId="left" stroke="#888" tick={{fill: '#888'}} label={{ value: 'CLV (%)', angle: -90, position: 'insideLeft', fill: '#888' }} />
-                          <YAxis yAxisId="right" orientation="right" stroke="#888" tick={{fill: '#888'}} label={{ value: 'P&L ($)', angle: 90, position: 'insideRight', fill: '#888' }} />
-                          <Tooltip
-                              contentStyle={{backgroundColor: 'rgba(15, 23, 42, 0.9)', borderColor: '#333', borderRadius: '8px'}}
-                              itemStyle={{color: '#00ffcc'}}
-                          />
-                          <Line type="monotone" yAxisId="left" dataKey="clv" name="Cumulative CLV (%)" stroke="#00ffcc" strokeWidth={3} dot={{r: 4, fill: '#00ffcc'}} activeDot={{r: 6}} />
-                          <Line type="monotone" yAxisId="right" dataKey="pnl" name="Realized P&L ($)" stroke="#ec4899" strokeWidth={3} dot={{r: 4, fill: '#ec4899'}} activeDot={{r: 6}} />
-                      </LineChart>
-                  </ResponsiveContainer>
-              </div>
+      <section className="panel hero-panel">
+        <div className="panel-head">
+          <div>
+            <h2>Currently betting</h2>
+            <p>Paper tickets waiting on a real final score. P&L does not move until then.</p>
           </div>
-      )}
-
-      <main className="glass-panel" style={{marginTop: '20px'}}>
-        <div className="opportunities-header">
-          <h2>Active +EV Opportunities (Live WebSockets)</h2>
-          <button className="refresh-btn" onClick={() => fetchData(true)} disabled={loading}>
-            {loading ? 'Scanning...' : 'Manual Scan'}
-          </button>
         </div>
-
-        {loading ? (
-          <div className="loading">Executing mathematical scan across markets...</div>
-        ) : opportunities.length === 0 ? (
-          <div className="loading">No +EV opportunities found meeting system criteria.</div>
+        {openBets.length === 0 ? (
+          <div className="empty">
+            Nothing working right now. The worker scans every 15 minutes and only logs unique +EV sides.
+          </div>
         ) : (
-          <div className="opportunity-list">
-            {opportunities.map((opp, idx) => (
-              <div key={opp.event_id ? `${opp.event_id}-${opp.bet_on}` : idx} className="opp-card">
-                <div className="opp-main">
-                  <div className="opp-match">{opp.event}</div>
-                  <div className="opp-details">
-                    <span className="opp-bet">Bet: <strong>{opp.bet_on}</strong> @ {opp.soft_odds}</span>
-                    <span className="opp-book">[{opp.soft_book}]</span>
-                    <span>True Prob: {opp.true_probability}%</span>
+          <div className="ticket-list">
+            {openBets.map((bet) => (
+              <article key={bet.id} className="ticket">
+                <div>
+                  <div className="ticket-match">{bet.match_name}</div>
+                  <div className="ticket-meta">
+                    <span>Paper on <strong>{bet.bet_on}</strong> @ {Number(bet.placed_odds).toFixed(2)}</span>
+                    {bet.sport_key && <span>{bet.sport_key}</span>}
+                    <span>{bet.timestamp ? new Date(bet.timestamp).toLocaleString() : ''}</span>
                   </div>
                 </div>
-                <div className="opp-metrics">
+                <div className="ticket-side">
+                  <span className="pill live">{outcomeLabel(bet)}</span>
+                  <div style={{marginTop: 8}}>{money(bet.stake)}</div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {history.length > 0 && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Settled paper P&L</h2>
+              <p>Only completed games. Open tickets are not in this line.</p>
+            </div>
+          </div>
+          <div className="chart-wrap">
+            <ResponsiveContainer>
+              <LineChart data={history}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2c3629" vertical={false} />
+                <XAxis dataKey="name" stroke="#9aa392" />
+                <YAxis stroke="#9aa392" />
+                <Tooltip contentStyle={{ background: '#181e17', borderColor: '#3d4638', borderRadius: 8 }} />
+                <Line type="monotone" dataKey="pnl" name="P&L" stroke="#d4b483" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+      )}
+
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <h2>+EV watchlist</h2>
+            <p>Edges the model likes. Not the same as tickets already placed.</p>
+          </div>
+        </div>
+        {loading && opportunities.length === 0 ? (
+          <div className="empty">Scanning live moneylines…</div>
+        ) : opportunities.length === 0 ? (
+          <div className="empty">No +EV sides above the min-edge filter right now.</div>
+        ) : (
+          <div className="opp-list">
+            {opportunities.map((opp, idx) => (
+              <div key={opp.event_id ? `${opp.event_id}-${opp.bet_on}` : idx} className="opp-card">
+                <div>
+                  <div className="opp-match">{opp.event}</div>
+                  <div className="opp-details">
+                    {opp.bet_on} @ {opp.soft_odds} · {opp.soft_book} · model {opp.true_probability}%
+                  </div>
+                </div>
+                <div>
                   <div className="opp-ev">+{opp.ev_percentage}% EV</div>
-                  <div className="opp-stake">Rec. Stake: ${Number(opp.kelly_stake || 0).toFixed(2)}</div>
+                  <div className="opp-stake">Kelly {money(opp.kelly_stake)}</div>
                 </div>
               </div>
             ))}
           </div>
         )}
-      </main>
+      </section>
 
-      <main className="glass-panel" style={{marginTop: '20px', borderColor: 'rgba(255, 204, 0, 0.3)'}}>
-        <div className="opportunities-header">
-          <h2 style={{color: '#ffcc00'}}>Live Arbitrage Scanner (Guaranteed Profit)</h2>
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <h2>Arbitrage watchlist</h2>
+            <p>Alert only. Profit is locked only if every leg is filled at these odds. Hyperion does not place these.</p>
+          </div>
         </div>
-
-        {loading ? (
-          <div className="loading">Executing cross-exchange scan...</div>
-        ) : arbitrageOpps.length === 0 ? (
-          <div className="loading">No risk-free Arbitrage opportunities found currently.</div>
+        {arbitrageOpps.length === 0 ? (
+          <div className="empty">No cross-book arbs on the current slate.</div>
         ) : (
-          <div className="opportunity-list">
+          <div className="opp-list">
             {arbitrageOpps.map((arb, idx) => (
-              <div key={arb.event_id || idx} className="opp-card" style={{borderLeft: '4px solid #ffcc00'}}>
-                <div className="opp-main">
-                  <div className="opp-match" style={{color: '#ffcc00'}}>{arb.match}</div>
-                  <div className="opp-details" style={{display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px'}}>
-                    {(arb.legs || []).map((leg, lIdx) => (
-                      <span key={lIdx} style={{fontSize: '0.9rem'}}>
-                        Bet <strong>${Number(leg.stake || 0).toFixed(2)}</strong> on <strong>{leg.outcome}</strong> @ {leg.odds} [{leg.bookmaker}]
-                      </span>
+              <div key={arb.event_id || idx} className="opp-card">
+                <div>
+                  <div className="opp-match">{arb.match}</div>
+                  <div className="opp-details">
+                    {(arb.legs || []).map((leg, i) => (
+                      <div key={i}>{leg.outcome} @ {leg.odds} · {leg.bookmaker} · {money(leg.stake)}</div>
                     ))}
                   </div>
                 </div>
-                <div className="opp-metrics">
-                  <div className="opp-ev" style={{color: '#ffcc00'}}>+{arb.roi_percentage}% ROI</div>
-                  <div className="opp-stake">Profit: ${Number(arb.guaranteed_profit || 0).toFixed(2)}</div>
+                <div>
+                  <div className="opp-ev">+{arb.roi_percentage}% ROI</div>
+                  <div className="opp-stake">If filled {money(arb.guaranteed_profit)}</div>
                 </div>
               </div>
             ))}
           </div>
         )}
-      </main>
+      </section>
 
-      <main className="glass-panel" style={{marginTop: '20px', borderColor: 'rgba(236, 72, 153, 0.3)'}}>
-        <div className="opportunities-header">
-          <h2 style={{color: '#ec4899'}}>Free Bet Conversion Scanner (Guaranteed Cash)</h2>
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <h2>Free-bet conversion</h2>
+            <p>Alert only. Assumes a FanDuel free bet hedged on DraftKings. Not placed automatically.</p>
+          </div>
         </div>
-
-        {loading ? (
-          <div className="loading">Executing matched betting scan...</div>
-        ) : matchedBets.length === 0 ? (
-          <div className="loading">No Free Bet conversion opportunities found currently.</div>
+        {matchedBets.length === 0 ? (
+          <div className="empty">No conversion setups above the 65% threshold.</div>
         ) : (
-          <div className="opportunity-list">
+          <div className="opp-list">
             {matchedBets.map((mb, idx) => (
-              <div key={idx} className="opp-card" style={{borderLeft: '4px solid #ec4899'}}>
-                <div className="opp-main">
-                  <div className="opp-match" style={{color: '#ec4899'}}>{mb.event}</div>
-                  <div className="opp-details" style={{display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px'}}>
-                    <span style={{fontSize: '0.9rem'}}>Target: <strong>{mb.free_bet}</strong></span>
-                    <span style={{fontSize: '0.9rem'}}>Hedge: <strong>{mb.hedge_bet}</strong></span>
-                    <span style={{fontSize: '0.9rem'}}>Required Hedge Stake: <strong>${Number(mb.lay_stake_needed || 0).toFixed(2)}</strong></span>
+              <div key={idx} className="opp-card">
+                <div>
+                  <div className="opp-match">{mb.event}</div>
+                  <div className="opp-details">
+                    <div>{mb.free_bet}</div>
+                    <div>{mb.hedge_bet}</div>
                   </div>
                 </div>
-                <div className="opp-metrics">
-                  <div className="opp-ev" style={{color: '#ec4899'}}>{Number(mb.conversion_rate || 0).toFixed(2)}% Conversion</div>
-                  <div className="opp-stake">Guaranteed Profit: ${Number(mb.guaranteed_profit || 0).toFixed(2)}</div>
+                <div>
+                  <div className="opp-ev">{Number(mb.conversion_rate || 0).toFixed(0)}% cash</div>
+                  <div className="opp-stake">Hedge {money(mb.lay_stake_needed)}</div>
                 </div>
               </div>
             ))}
           </div>
         )}
-      </main>
+      </section>
     </div>
   )
 }

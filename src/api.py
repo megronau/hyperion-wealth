@@ -69,6 +69,18 @@ def create_app(db=None, odds_client=None):
             "win_fee_percentage": win_fee_percentage(),
         })
 
+    @app.route("/api/open_bets", methods=["GET"])
+    def get_open_bets():
+        open_rows = get_db().get_open_trades()
+        pending = [
+            t for t in get_db().get_all_closed_trades()
+            if (t.get("outcome") or "PENDING") == "PENDING"
+        ]
+        seen = {t["id"] for t in open_rows}
+        combined = list(open_rows) + [t for t in pending if t["id"] not in seen]
+        combined.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
+        return jsonify(combined)
+
     @app.route("/api/history", methods=["GET"])
     def get_history():
         trades = get_db().get_all_closed_trades()
