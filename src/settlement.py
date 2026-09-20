@@ -39,7 +39,7 @@ def settle_pending_trades(db, results: Dict[str, Dict], fee_percentage: float = 
     pending = [t for t in closed if (t.get("outcome") or "PENDING") == "PENDING"]
 
     for trade in pending:
-        if (trade.get("mode") or "live") == "paper":
+        if (trade.get("mode") or "live") in ("paper", "sim"):
             continue
         result = _lookup_result(trade, results)
         if not result or not result.get("completed"):

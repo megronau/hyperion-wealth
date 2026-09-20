@@ -130,8 +130,8 @@ function App() {
         <h1 className="header-title text-gradient-green">HYPERION Wealth System</h1>
         <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
           {status && (
-            <div className={`status-badge ${status.trading_mode === 'live' ? '' : 'paper'}`}>
-              {(status.trading_mode || 'paper').toUpperCase()} MODE
+            <div className={`status-badge ${status.trading_mode === 'sim' ? 'paper' : ''}`}>
+              {(status.trading_mode || 'live_paper').replace('_', ' ').toUpperCase()} MODE
             </div>
           )}
           <div className={`status-badge ${online ? '' : 'offline'}`}>
@@ -180,11 +180,16 @@ function App() {
           </div>
         </div>
       )}
-      {status?.trading_mode !== 'live' && (
+      {status && status.trading_mode === 'sim' && (
         <p className="mode-note">
-          Paper mode walks unique +EV games forward and settles each bet with its modeled probability.
+          Simulator mode invents unique +EV games. This is not real-market paper trading.
+        </p>
+      )}
+      {status && (status.trading_mode === 'live_paper' || status.trading_mode === 'live') && (
+        <p className="mode-note">
+          Real-market paper trading: live odds, paper fills, settlement from real scores.
           Winning profit is reduced by a {(Number(status.win_fee_percentage ?? 0.02) * 100).toFixed(0)}% exchange fee.
-          This is not sportsbook cash. Live mode needs ODDS_API_KEY and real scores.
+          No sportsbook cash is sent. {!status.odds_live ? 'ODDS_API_KEY is missing — scans are blocked.' : ''}
         </p>
       )}
 

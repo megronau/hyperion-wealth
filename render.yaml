@@ -15,7 +15,7 @@ services:
       - key: FLASK_ENV
         value: production
       - key: TRADING_MODE
-        value: paper
+        value: live_paper
       - key: PYTHON_VERSION
         value: "3.11.9"
       - key: EMBED_DAEMON
@@ -25,7 +25,7 @@ services:
       - key: PAPER_GAMES_PER_CYCLE
         value: "20"
       - key: SCAN_INTERVAL_SECONDS
-        value: "300"
+        value: "900"
       - key: API_URL
         value: "https://hyperion-web-dbbz.onrender.com"
 
@@ -47,11 +47,11 @@ services:
           name: hyperion-web
           property: hostport
       - key: TRADING_MODE
-        value: paper
+        value: live_paper
       - key: PAPER_GAMES_PER_CYCLE
         value: "120"
       - key: SCAN_INTERVAL_SECONDS
-        value: "300"
+        value: "900"
       - key: PYTHON_VERSION
         value: "3.11.9"
       - key: FEE_PERCENTAGE

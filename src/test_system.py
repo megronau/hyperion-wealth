@@ -302,6 +302,26 @@ class TestDatabaseParams(unittest.TestCase):
                 os.remove(path)
 
 
+class TestTradingMode(unittest.TestCase):
+    def test_default_is_live_paper_not_simulator(self):
+        from trading_mode import get_trading_mode, is_sim, uses_real_odds
+
+        os.environ.pop("TRADING_MODE", None)
+        self.assertEqual(get_trading_mode(), "live_paper")
+        self.assertTrue(uses_real_odds())
+        self.assertFalse(is_sim())
+
+    def test_paper_alias_is_simulator(self):
+        from trading_mode import get_trading_mode, is_sim
+
+        os.environ["TRADING_MODE"] = "paper"
+        try:
+            self.assertEqual(get_trading_mode(), "sim")
+            self.assertTrue(is_sim())
+        finally:
+            os.environ.pop("TRADING_MODE", None)
+
+
 class TestAPI(unittest.TestCase):
     def setUp(self):
         fd, path = tempfile.mkstemp(suffix=".db")

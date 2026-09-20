@@ -12,6 +12,7 @@ from ev_scanner import EVScanner
 from scanner import ArbitrageScanner
 from matched_betting import MatchedBettingScanner
 from fees import win_fee_percentage
+from trading_mode import get_trading_mode
 
 socketio = SocketIO(cors_allowed_origins="*")
 
@@ -48,12 +49,6 @@ def create_app(db=None, odds_client=None):
         clv_values = [(t.get("clv_percentage") or 0) for t in closed_trades]
         avg_clv = (sum(clv_values) / len(clv_values)) if clv_values else 0
         perf = get_db().get_performance()
-        odds = get_odds()
-        forced = (os.environ.get("TRADING_MODE") or "").strip().lower()
-        if forced in ("paper", "live"):
-            mode = forced
-        else:
-            mode = "paper" if getattr(odds, "is_mock", True) else "live"
         return jsonify({
             "status": "ONLINE",
             "kelly_fraction": params["kelly_fraction"],
@@ -64,7 +59,8 @@ def create_app(db=None, odds_client=None):
             "bankroll": params.get("bankroll", 1000.0),
             "win_rate": perf["win_rate"],
             "roi": perf["roi"],
-            "trading_mode": mode,
+            "trading_mode": get_trading_mode(),
+            "odds_live": not getattr(get_odds(), "is_mock", True),
             "win_fee_percentage": win_fee_percentage(),
         })
 

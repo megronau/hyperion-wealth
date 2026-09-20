@@ -46,25 +46,28 @@ class OddsAPIClient:
     def is_mock(self) -> bool:
         return bool(self.use_mock or not self.api_key)
 
-    def get_odds(self, sport: str = "upcoming", regions: str = "us", markets: str = "h2h") -> List[Event]:
+    def get_odds(self, sport: str = None, regions: str = "us", markets: str = "h2h") -> List[Event]:
+        sport = sport or os.environ.get("LIVE_SPORTS") or "upcoming"
+        sports = [s.strip() for s in sport.split(",") if s.strip()] or ["upcoming"]
+
         if self.use_mock or not self.api_key:
             if not self.use_mock:
                 print("WARNING: No API key provided. Falling back to mock data.")
             return self._get_mock_data()
 
-        url = f"{self.BASE_URL}/{sport}/odds/"
-        params = {
-            "api_key": self.api_key,
-            "regions": regions,
-            "markets": markets,
-            "oddsFormat": "decimal"
-        }
-        
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        
-        data = response.json()
-        return self._parse_events(data)
+        events: List[Event] = []
+        for key in sports:
+            url = f"{self.BASE_URL}/{key}/odds/"
+            params = {
+                "api_key": self.api_key,
+                "regions": regions,
+                "markets": markets,
+                "oddsFormat": "decimal",
+            }
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            events.extend(self._parse_events(response.json()))
+        return events
 
     def get_match_results(self, sport: str = None, daysFrom: int = 3, event_ids: Optional[List[str]] = None) -> Dict:
         """

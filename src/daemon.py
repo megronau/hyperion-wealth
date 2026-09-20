@@ -18,6 +18,7 @@ from account_health import AccountHealthManager
 from settlement import settle_pending_trades
 from paper_engine import PaperEngine
 from fees import win_fee_percentage
+from trading_mode import get_trading_mode, is_sim, uses_real_odds
 
 
 def _normalize_api_url(raw: str) -> str:
@@ -40,19 +41,12 @@ class Daemon:
         self.health_manager = AccountHealthManager(prop_cap=50.0, main_line_cap=500.0, mug_bet_chance=0.05)
         self.paper_engine = PaperEngine(self.db, fee_percentage=win_fee_percentage())
 
-        self.sleep_interval = int(os.environ.get("SCAN_INTERVAL_SECONDS", "300"))
-        self.paper_games = int(os.environ.get("PAPER_GAMES_PER_CYCLE", "120"))
+        self.sleep_interval = int(os.environ.get("SCAN_INTERVAL_SECONDS", "900"))
+        self.paper_games = int(os.environ.get("PAPER_GAMES_PER_CYCLE", "20"))
+        self.max_bets_per_cycle = int(os.environ.get("MAX_BETS_PER_CYCLE", "10"))
         self.discord_webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "MOCK_URL")
         self.api_base_url = _normalize_api_url(os.environ.get("API_URL", "http://127.0.0.1:5000"))
-
-        forced = (os.environ.get("TRADING_MODE") or "").strip().lower()
-        if forced in ("paper", "live"):
-            self.trading_mode = forced
-        else:
-            self.trading_mode = "paper" if self.odds_client.is_mock else "live"
-        if self.trading_mode == "live" and self.odds_client.is_mock:
-            print("No ODDS_API_KEY; forcing paper mode.")
-            self.trading_mode = "paper"
+        self.trading_mode = get_trading_mode()
 
     def _send_discord_alert(self, message: str):
         print(f"\n     [DISCORD ALERT] Sending to webhook: {message}")
@@ -135,7 +129,8 @@ class Daemon:
             print("     No +EV bets found.")
             return
         print(f"     [ALERT] Found {len(ev_opportunities)} +EV bets!")
-        for opp in ev_opportunities[:2]:
+        placed = 0
+        for opp in ev_opportunities:
             print(f"       * {opp['bet_on']} @ {opp['soft_odds']} (EV: +{opp['ev_percentage']}%)")
             if opp["ev_percentage"] > 5.0:
                 self._send_discord_alert(
@@ -175,9 +170,12 @@ class Daemon:
                     stake=final_stake,
                     exchange_order_id=order_id,
                     sport_key=opp.get("sport_key"),
-                    mode="live",
+                    mode="live_paper",
                 )
-                print(f"     [LOGGED LIVE] {opp['bet_on']} ${final_stake} — waiting for real scores")
+                placed += 1
+                print(f"     [LIVE PAPER] {opp['bet_on']} ${final_stake} — waiting for real scores")
+                if placed >= self.max_bets_per_cycle:
+                    break
             except Exception as e:
                 print(f"     [EXECUTION ERROR] {e}")
 
@@ -199,30 +197,33 @@ class Daemon:
         params = self.db.get_system_params()
         self.ev_scanner.bankroll = float(params.get("bankroll") or 1000.0)
 
-        if self.trading_mode == "paper":
-            print(f"  -> Running +EV paper walk-forward ({self.paper_games} unique games)...")
+        if is_sim(self.trading_mode):
+            print(f"  -> SIMULATOR (invented games) — {self.paper_games} per cycle")
             summary = self.paper_engine.run_batch(self.paper_games)
             print(
-                f"     Paper batch: {summary['bets_placed']} bets, "
+                f"     Sim batch: {summary['bets_placed']} bets, "
                 f"P&L ${summary['pnl']:.2f}, bankroll ${summary['bankroll']:.2f}"
             )
-            if summary["pnl"] > 0:
-                self._send_discord_alert(
-                    f"Paper cycle +${summary['pnl']:.2f}. Bankroll ${summary['bankroll']:.2f}."
-                )
-        else:
-            print("  -> Settling live trades from real scores...")
+        elif uses_real_odds(self.trading_mode):
+            if self.odds_client.is_mock:
+                print("  -> BLOCKED: ODDS_API_KEY is not set. Not inventing games. Add the key and restart.")
+                print(f"[{current_time}] Cycle Complete.")
+                return
+            print("  -> Settling live-paper trades from real scores...")
             self._settle_live()
+        else:
+            print(f"  -> Unknown TRADING_MODE={self.trading_mode}")
+            return
 
         print("  -> Evaluating realized performance...")
         self.learner.evaluate_performance()
         params = self.db.get_system_params()
 
         ev_opportunities = self._scan_for_dashboard(params)
-        if self.trading_mode == "live":
+        if uses_real_odds(self.trading_mode) and not self.odds_client.is_mock:
             print(
-                f"  -> Logging live +EV (Min Edge: {params['min_ev_threshold']*100:.2f}%, "
-                f"Kelly: {params['kelly_fraction']}x)..."
+                f"  -> Logging real-market paper bets "
+                f"(Min Edge: {params['min_ev_threshold']*100:.2f}%, Kelly: {params['kelly_fraction']}x)..."
             )
             self._execute_live_opportunities(ev_opportunities)
 

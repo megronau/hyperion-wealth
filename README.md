@@ -61,17 +61,15 @@ That wipes trades, sets bankroll to $100, then runs a seed walk-forward.
 py -3 -m unittest discover -s src -v
 ```
 
-## Paper vs live
+## Modes
 
-| | Paper (default) | Live |
-|---|---|---|
-| Data | Simulated unique markets | The Odds API |
-| Settlement | Win with modeled probability | Real scores when available |
-| Win P&L | `(odds − 1) × stake × 0.98` | Same formula |
-| Loss P&L | `−stake` | `−stake` |
-| Money | Simulated | **Not sent.** Kalshi signing and tickers are not production-ready. |
+| `TRADING_MODE` | What it does |
+|----------------|----------------|
+| `live_paper` (default) | Real upcoming odds, paper fills, settle from real scores. **Requires `ODDS_API_KEY`.** Will not invent games if the key is missing. |
+| `live` | Same as live_paper until Kalshi signing is real. Still no sportsbook cash. |
+| `sim` (or `paper`) | Invented +EV games. Use only to test the math. |
 
-`TRADING_MODE=live` without `ODDS_API_KEY` is forced back to paper.
+`TRADING_MODE=live_paper` without `ODDS_API_KEY` **skips the cycle** instead of falling back to the simulator.
 
 ## Fees
 
