@@ -149,6 +149,26 @@ def create_app(db=None, odds_client=None):
 
 app = create_app()
 
+
+def _maybe_start_embedded_daemon():
+    """Free Render web services cannot run a separate worker. Run the loop here."""
+    flag = os.environ.get("EMBED_DAEMON", "").lower()
+    if flag not in ("1", "true", "yes"):
+        return
+    if os.environ.get("HYPERION_DAEMON_EMBEDDED") == "1":
+        return
+    os.environ["HYPERION_DAEMON_EMBEDDED"] = "1"
+    import subprocess
+    daemon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "daemon.py")
+    subprocess.Popen(
+        [sys.executable, daemon_path],
+        cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+    )
+    print("Embedded paper daemon started alongside the API.")
+
+
+_maybe_start_embedded_daemon()
+
 if __name__ == "__main__":
     print("Starting Wealth Generation Backend API on port 5000 with WebSockets...")
     socketio.run(app, debug=True, port=5000, allow_unsafe_werkzeug=True)

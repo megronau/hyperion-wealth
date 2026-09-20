@@ -6,7 +6,7 @@ services:
     plan: free
     healthCheckPath: /api/health
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn --worker-class eventlet -w 1 -b 0.0.0.0:$PORT src.api:app"
+    startCommand: "gunicorn --worker-class gthread --threads 8 -w 1 -b 0.0.0.0:$PORT src.api:app"
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -18,6 +18,8 @@ services:
         value: paper
       - key: PYTHON_VERSION
         value: "3.11.9"
+      - key: EMBED_DAEMON
+        value: "true"
 
   - type: worker
     name: hyperion-daemon

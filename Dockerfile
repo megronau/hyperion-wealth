@@ -22,4 +22,4 @@ EXPOSE 5000
 
 # Provide a default command (can be overridden by Render yaml)
 # Since we have two services (API and Daemon), the render.yaml will specify the exact command.
-CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "-b", "0.0.0.0:5000", "src.api:app"]
+CMD ["gunicorn", "--worker-class", "gthread", "--threads", "8", "-w", "1", "-b", "0.0.0.0:5000", "src.api:app"]
