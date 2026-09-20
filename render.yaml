@@ -44,7 +44,7 @@ services:
       - key: API_URL
         fromService:
           type: web
-          name: hyperion-api
+          name: hyperion-web
           property: hostport
       - key: TRADING_MODE
         value: paper
