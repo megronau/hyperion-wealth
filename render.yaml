@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: hyperion-api
+    name: hyperion-web
     runtime: python
     region: ohio
-    plan: free
+    plan: starter
     healthCheckPath: /api/health
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn --worker-class gthread --threads 8 -w 1 -b 0.0.0.0:$PORT src.api:app"
@@ -19,7 +19,7 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.9"
       - key: EMBED_DAEMON
-        value: "true"
+        value: "false"
       - key: FEE_PERCENTAGE
         value: "0.02"
       - key: PAPER_GAMES_PER_CYCLE
@@ -27,7 +27,7 @@ services:
       - key: SCAN_INTERVAL_SECONDS
         value: "300"
       - key: API_URL
-        value: "https://hyperion-api-klr5.onrender.com"
+        value: "https://hyperion-web-dbbz.onrender.com"
 
   - type: worker
     name: hyperion-daemon
@@ -63,6 +63,6 @@ services:
 
 databases:
   - name: hyperion-db
-    plan: free
+    plan: basic_256mb
     region: ohio
     postgresMajorVersion: 16

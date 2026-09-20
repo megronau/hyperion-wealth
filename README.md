@@ -9,11 +9,9 @@ It does **not** send real money to sportsbooks. Paper mode simulates unique game
 | What | URL |
 |------|-----|
 | Dashboard | https://hyperion-wealth.vercel.app |
-| API | https://hyperion-api-klr5.onrender.com |
-| Health | https://hyperion-api-klr5.onrender.com/api/health |
+| API | https://hyperion-web-dbbz.onrender.com |
+| Health | https://hyperion-web-dbbz.onrender.com/api/health |
 | GitHub | https://github.com/megronau/hyperion-wealth |
-
-The first request after Render sleeps can take ~30 seconds.
 
 ## How to run locally
 
@@ -123,19 +121,21 @@ scripts/reset_paper_book.py
 
 **Dashboard** is on Vercel (`dashboard/`). **API + paper loop** are on Render (`render.yaml`). Vercel cannot run the Python daemon.
 
-### Render (already created)
+### Render (~$20/month, already created)
 
-- Web: `hyperion-api` (free). `EMBED_DAEMON=true` so the loop runs on the web service.
-- Postgres: `hyperion-db` (free; expires ~30 days unless upgraded).
-- A separate **worker** needs a credit card. Without it, keep `EMBED_DAEMON=true`.
+| Service | Plan | ~Cost |
+|---------|------|--------|
+| `hyperion-web` | Starter web API | $7 |
+| `hyperion-daemon` | Starter worker | $7 |
+| `hyperion-db` | Basic 256 MB Postgres | $6 |
 
-Free web services sleep when idle. Ping `/api/health` or upgrade if you need the loop always on.
+The worker runs the paper loop. The web service only serves the API (no sleep, `EMBED_DAEMON=false`). Postgres no longer expires after 30 days.
 
 ### Point Vercel at the API
 
 ```powershell
 cd dashboard
-echo "https://hyperion-api-klr5.onrender.com" | vercel env add VITE_BACKEND_URL production
+echo "https://hyperion-web-dbbz.onrender.com" | vercel env add VITE_BACKEND_URL production
 vercel deploy --prod
 ```
 

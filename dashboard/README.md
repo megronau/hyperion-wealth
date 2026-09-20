@@ -24,7 +24,7 @@ The production site is https://hyperion-wealth.vercel.app
 Build-time env:
 
 ```
-VITE_BACKEND_URL=https://hyperion-api-klr5.onrender.com
+VITE_BACKEND_URL=https://hyperion-web-dbbz.onrender.com
 ```
 
 Redeploy after changing that variable:
