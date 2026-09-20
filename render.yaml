@@ -1,0 +1,56 @@
+services:
+  - type: web
+    name: hyperion-api
+    runtime: python
+    region: ohio
+    plan: free
+    healthCheckPath: /api/health
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn --worker-class eventlet -w 1 -b 0.0.0.0:$PORT src.api:app"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hyperion-db
+          property: connectionString
+      - key: FLASK_ENV
+        value: production
+      - key: TRADING_MODE
+        value: paper
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+  - type: worker
+    name: hyperion-daemon
+    runtime: python
+    region: ohio
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python src/daemon.py"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hyperion-db
+          property: connectionString
+      - key: API_URL
+        fromService:
+          type: web
+          name: hyperion-api
+          property: hostport
+      - key: TRADING_MODE
+        value: paper
+      - key: PAPER_GAMES_PER_CYCLE
+        value: "120"
+      - key: SCAN_INTERVAL_SECONDS
+        value: "300"
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: ODDS_API_KEY
+        sync: false
+      - key: DISCORD_WEBHOOK_URL
+        sync: false
+
+databases:
+  - name: hyperion-db
+    plan: free
+    region: ohio
+    postgresMajorVersion: 16
