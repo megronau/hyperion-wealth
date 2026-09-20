@@ -22,6 +22,12 @@ services:
         value: "true"
       - key: FEE_PERCENTAGE
         value: "0.02"
+      - key: PAPER_GAMES_PER_CYCLE
+        value: "20"
+      - key: SCAN_INTERVAL_SECONDS
+        value: "300"
+      - key: API_URL
+        value: "https://hyperion-api-klr5.onrender.com"
 
   - type: worker
     name: hyperion-daemon
@@ -48,6 +54,8 @@ services:
         value: "300"
       - key: PYTHON_VERSION
         value: "3.11.9"
+      - key: FEE_PERCENTAGE
+        value: "0.02"
       - key: ODDS_API_KEY
         sync: false
       - key: DISCORD_WEBHOOK_URL
