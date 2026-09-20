@@ -183,6 +183,7 @@ function App() {
       {status?.trading_mode !== 'live' && (
         <p className="mode-note">
           Paper mode walks unique +EV games forward and settles each bet with its modeled probability.
+          Winning profit is reduced by a {(Number(status.win_fee_percentage ?? 0.02) * 100).toFixed(0)}% exchange fee.
           This is not sportsbook cash. Live mode needs ODDS_API_KEY and real scores.
         </p>
       )}

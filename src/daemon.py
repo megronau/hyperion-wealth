@@ -17,6 +17,7 @@ from matched_betting import MatchedBettingScanner
 from account_health import AccountHealthManager
 from settlement import settle_pending_trades
 from paper_engine import PaperEngine
+from fees import win_fee_percentage
 
 
 def _normalize_api_url(raw: str) -> str:
@@ -37,7 +38,7 @@ class Daemon:
         self.arb_scanner = ArbitrageScanner(self.odds_client)
         self.mb_scanner = MatchedBettingScanner(self.odds_client)
         self.health_manager = AccountHealthManager(prop_cap=50.0, main_line_cap=500.0, mug_bet_chance=0.05)
-        self.paper_engine = PaperEngine(self.db)
+        self.paper_engine = PaperEngine(self.db, fee_percentage=win_fee_percentage())
 
         self.sleep_interval = int(os.environ.get("SCAN_INTERVAL_SECONDS", "300"))
         self.paper_games = int(os.environ.get("PAPER_GAMES_PER_CYCLE", "120"))
@@ -106,7 +107,7 @@ class Daemon:
             ev_opportunities = self.ev_scanner.scan(
                 min_edge=params["min_ev_threshold"],
                 kelly_fraction=params["kelly_fraction"],
-                fee_percentage=0.0,
+                fee_percentage=win_fee_percentage(),
             )
         except Exception as e:
             print(f"     [SCAN ERROR] EV: {e}")

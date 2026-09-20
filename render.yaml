@@ -20,6 +20,8 @@ services:
         value: "3.11.9"
       - key: EMBED_DAEMON
         value: "true"
+      - key: FEE_PERCENTAGE
+        value: "0.02"
 
   - type: worker
     name: hyperion-daemon

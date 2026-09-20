@@ -85,11 +85,11 @@ class TestSettlement(unittest.TestCase):
 
         self.assertEqual(len(settled), 1)
         self.assertEqual(settled[0]["outcome"], "WON")
-        self.assertAlmostEqual(settled[0]["profit_loss"], 15.0)
+        self.assertAlmostEqual(settled[0]["profit_loss"], 14.7)
 
         stored = self.db.get_all_closed_trades()
         self.assertEqual(stored[0]["outcome"], "WON")
-        self.assertAlmostEqual(stored[0]["profit_loss"], 15.0)
+        self.assertAlmostEqual(stored[0]["profit_loss"], 14.7)
 
     def test_settle_lost_and_unmatched_stay_pending(self):
         from settlement import settle_pending_trades
@@ -240,6 +240,19 @@ class TestSettlement(unittest.TestCase):
         self.assertEqual(lost[0]["outcome"], "LOST")
         self.assertAlmostEqual(lost[0]["profit_loss"], -10.0)
 
+    def test_paper_win_applies_two_percent_fee(self):
+        from settlement import settle_paper_trades
+
+        class AlwaysWin:
+            def random(self):
+                return 0.0
+
+        trade_id = self.db.log_trade("p-fee", "A vs B", "A", 2.10, 0.55, 0.10, 10.0, mode="paper")
+        self.db.update_closing_line(trade_id, 2.10, 0.55)
+        won = settle_paper_trades(self.db, fee_percentage=0.02, rng=AlwaysWin())
+        self.assertEqual(won[0]["outcome"], "WON")
+        self.assertAlmostEqual(won[0]["profit_loss"], 10.78)
+
 
 class TestPaperEngine(unittest.TestCase):
     def test_walk_forward_is_profitable_with_fixed_seed(self):
@@ -319,6 +332,7 @@ class TestAPI(unittest.TestCase):
         self.assertIn("realized_pnl", body)
         self.assertIn("bankroll", body)
         self.assertIn("trading_mode", body)
+        self.assertAlmostEqual(body["win_fee_percentage"], 0.02)
 
     def test_opportunity_endpoints_return_lists(self):
         for path in (

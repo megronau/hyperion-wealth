@@ -11,6 +11,7 @@ from api_client import OddsAPIClient
 from ev_scanner import EVScanner
 from scanner import ArbitrageScanner
 from matched_betting import MatchedBettingScanner
+from fees import win_fee_percentage
 
 socketio = SocketIO(cors_allowed_origins="*")
 
@@ -64,6 +65,7 @@ def create_app(db=None, odds_client=None):
             "win_rate": perf["win_rate"],
             "roi": perf["roi"],
             "trading_mode": mode,
+            "win_fee_percentage": win_fee_percentage(),
         })
 
     @app.route("/api/history", methods=["GET"])
@@ -106,7 +108,7 @@ def create_app(db=None, odds_client=None):
             opportunities = scanner.scan(
                 min_edge=params["min_ev_threshold"],
                 kelly_fraction=params["kelly_fraction"],
-                fee_percentage=0.0,
+                fee_percentage=win_fee_percentage(),
             )
             cache()["ev"] = opportunities
             return jsonify(opportunities)

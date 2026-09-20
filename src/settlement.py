@@ -1,6 +1,8 @@
 from typing import Dict, List, Any
 import random
 
+from fees import winning_profit, win_fee_percentage
+
 
 def _parse_scores(scores: List[Dict]) -> List[Dict[str, Any]]:
     parsed = []
@@ -27,7 +29,7 @@ def _lookup_result(trade: Dict, results: Dict[str, Dict]):
     return None
 
 
-def settle_pending_trades(db, results: Dict[str, Dict]) -> List[Dict]:
+def settle_pending_trades(db, results: Dict[str, Dict], fee_percentage: float = None) -> List[Dict]:
     """Settle CLOSED trades whose outcome is still PENDING using match scores.
 
     `results` is a mapping of Odds API event_id -> {completed, scores}.
@@ -54,7 +56,11 @@ def settle_pending_trades(db, results: Dict[str, Dict]) -> List[Dict]:
             profit = 0.0
         elif trade.get("bet_on") in winners:
             outcome = "WON"
-            profit = (float(trade["placed_odds"]) - 1.0) * float(trade["stake"])
+            profit = winning_profit(
+                trade["placed_odds"],
+                trade["stake"],
+                fee_percentage if fee_percentage is not None else win_fee_percentage(),
+            )
         else:
             outcome = "LOST"
             profit = -float(trade["stake"])
@@ -69,13 +75,14 @@ def settle_pending_trades(db, results: Dict[str, Dict]) -> List[Dict]:
     return settled
 
 
-def settle_paper_trades(db, fee_percentage: float = 0.02, rng=None) -> List[Dict]:
+def settle_paper_trades(db, fee_percentage: float = None, rng=None) -> List[Dict]:
     """Settle paper trades with a Bernoulli draw at modeled true probability.
 
     This is how the +EV model is supposed to realize: unique bets, each resolved
     by p(win) = true_prob_at_placement, not by repeating one mock box score.
     """
     rng = rng or random.Random()
+    fee = win_fee_percentage() if fee_percentage is None else fee_percentage
     settled = []
     closed = db.get_all_closed_trades()
     pending = [
@@ -92,7 +99,7 @@ def settle_paper_trades(db, fee_percentage: float = 0.02, rng=None) -> List[Dict
 
         if rng.random() < p:
             outcome = "WON"
-            profit = (odds - 1.0) * stake * (1.0 - fee_percentage)
+            profit = winning_profit(odds, stake, fee)
         else:
             outcome = "LOST"
             profit = -stake

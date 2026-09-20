@@ -1,5 +1,6 @@
 from api_client import OddsAPIClient
 from calculators import calculate_kelly_criterion, decimal_to_implied_probability
+from fees import net_decimal_odds, win_fee_percentage
 from typing import List, Dict
 
 class EVScanner:
@@ -23,13 +24,14 @@ class EVScanner:
         true_probs = [p / total_implied for p in implied_probs]
         return true_probs
 
-    def scan(self, min_edge: float = 0.02, kelly_fraction: float = 0.25, fee_percentage: float = 0.0) -> List[Dict]:
+    def scan(self, min_edge: float = 0.02, kelly_fraction: float = 0.25, fee_percentage: float = None) -> List[Dict]:
         """
         Scans for Positive Expected Value (+EV) bets.
         min_edge = 0.02 means we only want bets with a >2% mathematical edge.
         kelly_fraction is passed dynamically from the machine learning module.
         fee_percentage represents exchange transaction fees (e.g., 0.01 for 1%).
         """
+        fee = win_fee_percentage() if fee_percentage is None else fee_percentage
         events = self.api_client.get_odds()
         opportunities = []
 
@@ -75,7 +77,7 @@ class EVScanner:
                                     # Expected Value Calculation
                                     # EV = (Probability of Winning * Profit if Win) - Probability of Losing
                                     # Deduct fee from profit if win
-                                    profit_if_win = (soft_odds - 1.0) * (1.0 - fee_percentage)
+                                    profit_if_win = (soft_odds - 1.0) * (1.0 - fee)
                                     prob_lose = 1.0 - true_prob
                                     
                                     # Deduct fee from the stake lost if lose (some exchanges charge on all trades)
@@ -84,7 +86,11 @@ class EVScanner:
                                     
                                     if ev >= min_edge:
                                         # Use Kelly Criterion to size the bet (using dynamically learned fraction)
-                                        kelly_pct = calculate_kelly_criterion(soft_odds, true_prob, fraction=kelly_fraction)
+                                        kelly_pct = calculate_kelly_criterion(
+                                            net_decimal_odds(soft_odds, fee),
+                                            true_prob,
+                                            fraction=kelly_fraction,
+                                        )
                                         recommended_stake = self.bankroll * kelly_pct
                                         
                                         if recommended_stake > 1.0: # Minimum $1 bet

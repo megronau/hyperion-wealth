@@ -1,6 +1,7 @@
 import uuid
 
 from calculators import calculate_kelly_criterion
+from fees import net_decimal_odds, win_fee_percentage
 from settlement import settle_paper_trades
 
 
@@ -11,12 +12,12 @@ class PaperEngine:
     modeled true probability — the law of large numbers, not one mock box score.
     """
 
-    def __init__(self, db, rng=None, fee_percentage: float = 0.0):
+    def __init__(self, db, rng=None, fee_percentage: float = None):
         import random
 
         self.db = db
         self.rng = rng or random.Random()
-        self.fee_percentage = fee_percentage
+        self.fee_percentage = win_fee_percentage() if fee_percentage is None else fee_percentage
 
     def _one_game(self, index: int) -> dict:
         true_home = self.rng.uniform(0.25, 0.75)
@@ -69,7 +70,9 @@ class PaperEngine:
             if remaining < 1.0:
                 break
             kelly_pct = calculate_kelly_criterion(
-                game["odds"], game["true_prob"], fraction=kelly_fraction
+                net_decimal_odds(game["odds"], self.fee_percentage),
+                game["true_prob"],
+                fraction=kelly_fraction,
             )
             stake = min(bankroll * kelly_pct, remaining)
             if stake < 1.0:
