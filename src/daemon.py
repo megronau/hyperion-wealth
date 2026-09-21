@@ -146,8 +146,8 @@ class Daemon:
                 if not event_id:
                     print("     [EXECUTION ERROR] Opportunity missing event_id; skipping log")
                     continue
-                if self.db.has_trade(event_id, opp["bet_on"]):
-                    print(f"     [SKIP] Already have a position on {opp['bet_on']} ({event_id})")
+                if self.db.has_event_position(event_id):
+                    print(f"     [SKIP] Already have a position on {event_id}")
                     continue
 
                 market_key = opp.get("market_key", "h2h")

@@ -4,6 +4,9 @@ from fees import net_decimal_odds, win_fee_percentage
 from typing import List, Dict
 
 class EVScanner:
+    MAX_SOFT_ODDS = 12.0
+    MAX_EV = 0.30
+
     def __init__(self, api_client: OddsAPIClient):
         self.api_client = api_client
         self.bankroll = 500.0
@@ -67,9 +70,20 @@ class EVScanner:
                     for market in bookmaker.markets:
                         if market.key in true_probs_markets:
                             true_probs_map = true_probs_markets[market.key]
+                            sharp_names = set(true_probs_map.keys())
+                            soft_names = {outcome.name for outcome in market.outcomes}
+                            common = sharp_names & soft_names
+                            if "Draw" in common and (len(sharp_names) < 3 or len(soft_names) < 3):
+                                common = common - {"Draw"}
+                            if len(common) < 2:
+                                continue
                             for outcome in market.outcomes:
                                 name = outcome.name
+                                if name not in common:
+                                    continue
                                 soft_odds = outcome.price
+                                if soft_odds > self.MAX_SOFT_ODDS:
+                                    continue
                                 
                                 if name in true_probs_map:
                                     true_prob = true_probs_map[name]
@@ -84,7 +98,7 @@ class EVScanner:
                                     # For simplicity, assuming fee is only on profit like typical betting exchanges
                                     ev = (true_prob * profit_if_win) - prob_lose
                                     
-                                    if ev >= min_edge:
+                                    if ev >= min_edge and ev <= self.MAX_EV:
                                         # Use Kelly Criterion to size the bet (using dynamically learned fraction)
                                         kelly_pct = calculate_kelly_criterion(
                                             net_decimal_odds(soft_odds, fee),

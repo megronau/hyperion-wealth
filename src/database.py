@@ -271,6 +271,17 @@ class TradeDatabase:
         conn.close()
         return row is not None
 
+    def has_event_position(self, event_id: str) -> bool:
+        conn, cursor = self._get_connection()
+        self._execute(
+            cursor,
+            "SELECT id FROM trades WHERE event_id = ? LIMIT 1",
+            (event_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return row is not None
+
     def get_open_trades(self) -> List[Dict]:
         conn, cursor = self._get_connection()
         self._execute(cursor, "SELECT * FROM trades WHERE status = 'OPEN'")

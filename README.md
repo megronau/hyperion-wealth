@@ -21,7 +21,7 @@ Every **15 minutes** the Render worker:
 
 1. Settles any open **live_paper** tickets whose games have real scores (win profit × 0.98).
 2. Pulls **upcoming** US h2h odds (DraftKings/Pinnacle as sharp, FanDuel and others as soft).
-3. Logs at most **10** unique +EV paper bets that pass the min-edge filter (default 2% after fee). Same event/side is not bet twice.
+3. Logs at most **10** unique +EV paper bets that pass the min-edge filter. **One ticket per event.** Draw is only allowed when **both** books list three outcomes. Soft odds above 12.0 or EV above 30% are treated as feed junk and skipped.
 4. Broadcasts EV / arb / matched-betting lists to the dashboard.
 5. Adjusts Kelly only from **realized** ROI, not from fake closing lines.
 

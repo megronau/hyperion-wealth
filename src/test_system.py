@@ -13,6 +13,111 @@ from matched_betting import MatchedBettingScanner
 
 
 class TestEVScannerContract(unittest.TestCase):
+    def test_two_way_vs_three_way_does_not_emit_draw(self):
+        from api_client import Bookmaker, Event, Market, Outcome
+
+        class ListOddsClient:
+            def __init__(self, events):
+                self._events = events
+            def get_odds(self, *a, **k):
+                return self._events
+
+        event = Event(
+            id="mix_1",
+            sport_key="soccer_test",
+            home_team="Home",
+            away_team="Away",
+            commence_time="2026-09-21T00:00:00Z",
+            bookmakers=[
+                Bookmaker(
+                    key="draftkings",
+                    title="DraftKings",
+                    last_update="t",
+                    markets=[
+                        Market(
+                            key="h2h",
+                            outcomes=[
+                                Outcome(name="Home", price=1.90),
+                                Outcome(name="Away", price=2.00),
+                            ],
+                        )
+                    ],
+                ),
+                Bookmaker(
+                    key="fanduel",
+                    title="FanDuel",
+                    last_update="t",
+                    markets=[
+                        Market(
+                            key="h2h",
+                            outcomes=[
+                                Outcome(name="Home", price=1.85),
+                                Outcome(name="Away", price=2.05),
+                                Outcome(name="Draw", price=66.0),
+                            ],
+                        )
+                    ],
+                ),
+            ],
+        )
+        scanner = EVScanner(ListOddsClient([event]))
+        scanner.bankroll = 1000
+        opps = scanner.scan(min_edge=0.01, kelly_fraction=0.25, fee_percentage=0.0)
+        self.assertFalse(any(o["bet_on"] == "Draw" for o in opps))
+
+    def test_insane_draw_odds_are_rejected(self):
+        from api_client import Bookmaker, Event, Market, Outcome
+
+        class ListOddsClient:
+            def __init__(self, events):
+                self._events = events
+            def get_odds(self, *a, **k):
+                return self._events
+
+        event = Event(
+            id="draw_junk",
+            sport_key="soccer_test",
+            home_team="A",
+            away_team="B",
+            commence_time="2026-09-21T00:00:00Z",
+            bookmakers=[
+                Bookmaker(
+                    key="draftkings",
+                    title="DraftKings",
+                    last_update="t",
+                    markets=[
+                        Market(
+                            key="h2h",
+                            outcomes=[
+                                Outcome(name="A", price=2.10),
+                                Outcome(name="B", price=3.40),
+                                Outcome(name="Draw", price=3.50),
+                            ],
+                        )
+                    ],
+                ),
+                Bookmaker(
+                    key="fanduel",
+                    title="FanDuel",
+                    last_update="t",
+                    markets=[
+                        Market(
+                            key="h2h",
+                            outcomes=[
+                                Outcome(name="A", price=2.05),
+                                Outcome(name="B", price=3.30),
+                                Outcome(name="Draw", price=66.0),
+                            ],
+                        )
+                    ],
+                ),
+            ],
+        )
+        scanner = EVScanner(ListOddsClient([event]))
+        scanner.bankroll = 1000
+        opps = scanner.scan(min_edge=0.01, kelly_fraction=0.25, fee_percentage=0.0)
+        self.assertFalse(any(o["bet_on"] == "Draw" for o in opps))
+
     def test_opportunities_include_event_id_and_sport_key(self):
         scanner = EVScanner(OddsAPIClient(use_mock=True))
         opps = scanner.scan(min_edge=0.01, kelly_fraction=0.25, fee_percentage=0.0)
@@ -281,7 +386,9 @@ class TestDatabaseParams(unittest.TestCase):
             self.assertFalse(db.has_trade("mock_game_1", "Golden State Warriors"))
             db.log_trade("mock_game_1", "Lakers vs Warriors", "Golden State Warriors", 2.05, 0.54, 0.10, 25.0)
             self.assertTrue(db.has_trade("mock_game_1", "Golden State Warriors"))
+            self.assertTrue(db.has_event_position("mock_game_1"))
             self.assertFalse(db.has_trade("mock_game_1", "Los Angeles Lakers"))
+            self.assertFalse(db.has_event_position("other_event"))
         finally:
             if os.path.exists(path):
                 os.remove(path)
